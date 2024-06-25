@@ -98,7 +98,7 @@ public sealed partial class LogViewer
                 var current = logEntries[rowIndex];
                 var currentTimestamp = current.Timestamp ?? current.ParentTimestamp;
 
-                if (currentTimestamp != null && currentTimestamp < logEntry.Timestamp)
+                if (currentTimestamp != null && currentTimestamp <= logEntry.Timestamp)
                 {
                     InsertLogEntry(logEntries, rowIndex + 1, logEntry);
                     return;
