@@ -63,9 +63,6 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
     public string AppHostDirectory { get; }
 
     /// <inheritdoc />
-    public string AppHostPath { get; }
-
-    /// <inheritdoc />
     public Assembly? AppHostAssembly => _options.Assembly;
 
     /// <inheritdoc />
@@ -149,9 +146,9 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
 
         AppHostDirectory = options.ProjectDirectory ?? _innerBuilder.Environment.ContentRootPath;
         var appHostName = options.ProjectName ?? _innerBuilder.Environment.ApplicationName;
-        AppHostPath = Path.Join(AppHostDirectory, appHostName);
+        var appHostPath = Path.Join(AppHostDirectory, appHostName);
 
-        var appHostShaBytes = SHA256.HashData(Encoding.UTF8.GetBytes(AppHostPath));
+        var appHostShaBytes = SHA256.HashData(Encoding.UTF8.GetBytes(appHostPath));
         var appHostSha = Convert.ToHexString(appHostShaBytes);
 
         // Set configuration
@@ -160,7 +157,7 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
         {
             // Make the app host directory available to the application via configuration
             ["AppHost:Directory"] = AppHostDirectory,
-            ["AppHost:Path"] = AppHostPath,
+            ["AppHost:Path"] = appHostPath,
             ["AppHost:Sha256"] = appHostSha,
         });
 
@@ -172,7 +169,7 @@ public class DistributedApplicationBuilder : IDistributedApplicationBuilder
 
         ExecutionContext = new DistributedApplicationExecutionContext(_executionContextOptions);
 
-        // 
+        //
         Eventing.Subscribe<BeforeResourceStartedEvent>(async (@event, ct) =>
         {
             var rns = @event.Services.GetRequiredService<ResourceNotificationService>();
