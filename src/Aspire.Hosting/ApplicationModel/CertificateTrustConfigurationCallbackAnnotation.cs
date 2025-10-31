@@ -68,17 +68,17 @@ public sealed class CertificateTrustConfigurationCallbackAnnotationContext
     /// </code>
     /// </example>
     /// </remarks>
-    public required Dictionary<string, object> EnvironmentVariables { get; init; }
+    public required Dictionary<string, object?> EnvironmentVariables { get; init; }
 
     /// <summary>
     /// A value provider that will resolve to a path to a custom certificate bundle.
     /// </summary>
-    public required ReferenceExpression CertificateBundlePath { get; init; }
+    public required string? CertificateBundlePath { get; init; }
 
     /// <summary>
     /// A value provider that will resolve to paths containing individual certificates.
     /// </summary>
-    public required ReferenceExpression CertificateDirectoriesPath { get; init; }
+    public required string? CertificateDirectoriesPath { get; init; }
 
     /// <summary>
     /// Gets the <see cref="CertificateTrustScope"/> for the resource.
@@ -89,27 +89,4 @@ public sealed class CertificateTrustConfigurationCallbackAnnotationContext
     /// Gets the <see cref="CancellationToken"/> that can be used to cancel the operation.
     /// </summary>
     public required CancellationToken CancellationToken { get; init; }
-}
-
-internal sealed class CertificateTrustConfigurationPathsProvider
-{
-    /// <summary>
-    /// The actual path to the certificate bundle file to be resolved at runtime
-    /// </summary>
-    public string? CertificateBundlePath { get; set; }
-
-    /// <summary>
-    /// The actual path to the certificate directories to be resolved at runtime
-    /// </summary>
-    public string? CertificateDirectoriesPath { get; set; }
-
-    /// <summary>
-    /// Gets a reference expression that resolves to the certificate bundle path.
-    /// </summary>
-    public ReferenceExpression CertificateBundlePathReference => ReferenceExpression.Create($"{CertificateBundlePath}");
-
-    /// <summary>
-    /// Gets a reference expression that resolves to the certificate directories path.
-    /// </summary>
-    public ReferenceExpression CertificateDirectoriesPathReference => ReferenceExpression.Create($"{CertificateDirectoriesPath}");
 }

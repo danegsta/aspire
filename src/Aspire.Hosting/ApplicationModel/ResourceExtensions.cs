@@ -395,8 +395,8 @@ public static class ResourceExtensions
         // (key, unprocessed, processed, exception)
         Action<string, object?, string?, Exception?> processEnvironmentVariableValue,
         ILogger logger,
-        Func<CertificateTrustScope, ReferenceExpression> bundlePathFactory,
-        Func<CertificateTrustScope, ReferenceExpression> certificateDirectoryPathsFactory,
+        Func<CertificateTrustScope, Task<string>> bundlePathFactory,
+        Func<CertificateTrustScope, Task<string>> certificateDirectoryPathsFactory,
         CancellationToken cancellationToken = default)
     {
         var developerCertificateService = executionContext.ServiceProvider.GetRequiredService<IDeveloperCertificateService>();
@@ -440,11 +440,11 @@ public static class ResourceExtensions
             return (scope, null);
         }
 
-        var bundlePath = bundlePathFactory(scope);
-        var certificateDirectoryPaths = certificateDirectoryPathsFactory(scope);
+        var bundlePath = await bundlePathFactory(scope).ConfigureAwait(false);
+        var certificateDirectoryPaths = await certificateDirectoryPathsFactory(scope).ConfigureAwait(false);
 
         // Apply default OpenSSL environment configuration for certificate trust
-        var environment = new Dictionary<string, object>()
+        var environment = new Dictionary<string, object?>()
         {
             { "SSL_CERT_DIR", certificateDirectoryPaths },
         };

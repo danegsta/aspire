@@ -2336,8 +2336,8 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
                 }
             },
             resourceLogger,
-            (scope) => ReferenceExpression.Create($"{bundleOutputPath}"),
-            (scope) => ReferenceExpression.Create($"{certificatesOutputPath}"),
+            (scope) => Task.FromResult(bundleOutputPath),
+            (scope) => Task.FromResult(certificatesOutputPath),
             cancellationToken).ConfigureAwait(false);
 
         if (certificates?.Any() == true)
@@ -2420,7 +2420,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
                 }
             },
             resourceLogger,
-            (scope) => ReferenceExpression.Create($"{certificatesDestination}/cert.pem"),
+            (scope) => Task.FromResult($"{certificatesDestination}/cert.pem"),
             (scope) =>
             {
                 var dirs = new List<string> { certificatesDestination + "/certs" };
@@ -2431,7 +2431,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
                 }
 
                 // Build Linux PATH style colon-separated list of directories
-                return ReferenceExpression.Create($"{string.Join(':', dirs)}");
+                return Task.FromResult(string.Join(':', dirs));
             },
             cancellationToken).ConfigureAwait(false);
 
