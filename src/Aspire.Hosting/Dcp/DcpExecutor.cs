@@ -1541,7 +1541,9 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
         (var env, var failedToApplyConfiguration) = await BuildEnvVarsAsync(resourceLogger, er.ModelResource, cancellationToken).ConfigureAwait(false);
 
         // Build certificate trust configuration (args and env vars)
-        (var certificateArgs, var certificateEnv, var failedToApplyCertificateConfig) = await BuildExecutableCertificateTrustConfigAsync(resourceLogger, er.ModelResource, cancellationToken).ConfigureAwait(false);
+        (var certificateArgs, var certificateEnv, var pemCertificates, var failedToApplyCertificateConfig) = await BuildExecutableCertificateTrustConfigAsync(resourceLogger, er.ModelResource, exe.Name(), cancellationToken).ConfigureAwait(false);
+
+        spec.PemCertificates = pemCertificates;
 
         appHostArgs.AddRange(certificateArgs);
         var launchArgs = BuildLaunchArgs(er, spec, appHostArgs);
@@ -1785,11 +1787,11 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
         var createFiles = await BuildCreateFilesAsync(modelContainerResource, cancellationToken).ConfigureAwait(false);
 
         // Build certificate specific arguments, environment variables, and files
-        (var certificateArgs, var certificateEnv, var certificateFiles, var failedToApplyCertificateConfig) = await BuildContainerCertificateAuthorityTrustAsync(resourceLogger, modelContainerResource, cancellationToken).ConfigureAwait(false);
+        (var certificateArgs, var certificateEnv, var pemCertificates, var failedToApplyCertificateConfig) = await BuildContainerCertificateAuthorityTrustAsync(resourceLogger, modelContainerResource, cancellationToken).ConfigureAwait(false);
 
         args.AddRange(certificateArgs);
         env.AddRange(certificateEnv);
-        createFiles.AddRange(certificateFiles);
+        spec.PemCertificates = pemCertificates;
 
         // Set the final args, env vars, and create files on the container spec
         spec.Args = args.Select(a => a.Value).ToList();
@@ -2294,14 +2296,16 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
     /// </summary>
     /// <param name="resourceLogger">The logger for the resource.</param>
     /// <param name="modelResource">The executable IResource.</param>
+    /// <param name="executableName">The name of the executable as specified to DCP.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> that can be used to cancel the operation.</param>
     /// <returns>A <see cref="ValueTask"/> representing the asynchronous operation.</returns>
-    private async Task<(List<(string, bool)>, List<EnvVar>, bool)> BuildExecutableCertificateTrustConfigAsync(
+    private async Task<(List<(string, bool)>, List<EnvVar>, ExecutablePemCertificates?, bool)> BuildExecutableCertificateTrustConfigAsync(
         ILogger resourceLogger,
         IResource modelResource,
+        string executableName,
         CancellationToken cancellationToken)
     {
-        var certificatesRootDir = Path.Join(_locations.DcpSessionDir, modelResource.Name);
+        var certificatesRootDir = Path.Join(_locations.DcpSessionDir, executableName);
         var bundleOutputPath = Path.Join(certificatesRootDir, "cert.pem");
         var certificatesOutputPath = Path.Join(certificatesRootDir, "certs");
 
@@ -2344,25 +2348,25 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
             (scope) => ReferenceExpression.Create($"{certificatesOutputPath}"),
             cancellationToken).ConfigureAwait(false);
 
+        ExecutablePemCertificates? pemCertificates = null;
+
         if (certificates?.Any() == true)
         {
-            Directory.CreateDirectory(certificatesOutputPath);
-
-            // First build a CA bundle (concatenation of all certs in PEM format)
-            var caBundleBuilder = new StringBuilder();
-            foreach (var cert in certificates)
+            pemCertificates = new ExecutablePemCertificates
             {
-                caBundleBuilder.Append(cert.ExportCertificatePem());
-                caBundleBuilder.Append('\n');
-
-                // TODO: Add support in DCP to generate OpenSSL compatible symlinks for executable resources
-                File.WriteAllText(Path.Join(certificatesOutputPath, cert.Thumbprint + ".pem"), cert.ExportCertificatePem());
-            }
-
-            File.WriteAllText(bundleOutputPath, caBundleBuilder.ToString());
+                Certificates = certificates.Select(c =>
+                {
+                    return new PemCertificate
+                    {
+                        Thumbprint = c.Thumbprint,
+                        Contents = c.ExportCertificatePem(),
+                    };
+                }).DistinctBy(cert => cert.Thumbprint).ToList(),
+                ContinueOnError = true,
+            };
         }
 
-        return (args, env, failedToApplyConfig);
+        return (args, env, pemCertificates, failedToApplyConfig);
     }
 
     /// <summary>
@@ -2372,7 +2376,7 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
     /// <param name="modelResource">The container IResource.</param>
     /// <param name="cancellationToken">A <see cref="CancellationToken"/> that can be used to cancel the operation.</param>
     /// <returns>A <see cref="ValueTask"/> representing the asynchronous operation.</returns>
-    private async Task<(List<(string Value, bool isSensitive)>, List<EnvVar>, List<ContainerCreateFileSystem>, bool)> BuildContainerCertificateAuthorityTrustAsync(
+    private async Task<(List<(string Value, bool isSensitive)>, List<EnvVar>, ContainerPemCertificates?, bool)> BuildContainerCertificateAuthorityTrustAsync(
         ILogger resourceLogger,
         IResource modelResource,
         CancellationToken cancellationToken)
@@ -2439,69 +2443,33 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IConsoleLogsService, I
             },
             cancellationToken).ConfigureAwait(false);
 
+        ContainerPemCertificates? pemCertificates = null;
         if (certificates?.Any() == true)
         {
-            // First build a CA bundle (concatenation of all certs in PEM format)
-            var caBundleBuilder = new StringBuilder();
-            var certificateFiles = new List<ContainerFileSystemEntry>();
-            foreach (var cert in certificates.OrderBy(c => c.Thumbprint))
+            pemCertificates = new ContainerPemCertificates
             {
-                caBundleBuilder.Append(cert.ExportCertificatePem());
-                caBundleBuilder.Append('\n');
-                certificateFiles.Add(new ContainerFileSystemEntry
+                Certificates = certificates.Select(c =>
                 {
-                    Name = cert.Thumbprint + ".pem",
-                    Type = ContainerFileSystemEntryType.OpenSSL,
-                    Contents = cert.ExportCertificatePem(),
-                    ContinueOnError = true,
-                });
-            }
-
-            createFiles.Add(new()
-            {
+                    return new PemCertificate
+                    {
+                        Thumbprint = c.Thumbprint,
+                        Contents = c.ExportCertificatePem(),
+                    };
+                }).DistinctBy(cert => cert.Thumbprint).ToList(),
                 Destination = certificatesDestination,
-                Entries = [
-                    new ContainerFileSystemEntry
-                    {
-                        Name = "cert.pem",
-                        Contents = caBundleBuilder.ToString(),
-                    },
-                    new ContainerFileSystemEntry
-                    {
-                        Name = "certs",
-                        Type = ContainerFileSystemEntryType.Directory,
-                        Entries = certificateFiles.ToList(),
-                    }
-                ],
-            });
+                ContinueOnError = true,
+            };
 
             if (scope != CertificateTrustScope.Append)
             {
                 // If overriding the default resource CA bundle, then we want to copy our bundle to the well-known locations
                 // used by common Linux distributions to make it easier to ensure applications pick it up.
                 // Group by common directory to avoid creating multiple file system entries for the same root directory.
-                foreach (var bundlePath in bundlePaths!.Select(bp =>
-                {
-                    var filename = Path.GetFileName(bp);
-                    var dir = bp.Substring(0, bp.Length - filename.Length);
-                    return (dir, filename);
-                }).GroupBy(parts => parts.dir))
-                {
-                    createFiles.Add(new ContainerCreateFileSystem
-                    {
-                        Destination = bundlePath.Key,
-                        Entries = bundlePath.Select(bp =>
-                            new ContainerFileSystemEntry
-                            {
-                                Name = bp.filename,
-                                Contents = caBundleBuilder.ToString(),
-                            }).ToList(),
-                    });
-                }
+                pemCertificates.OverwriteBundlePaths = bundlePaths;
             }
         }
 
-        return (args, env, createFiles, failedToApplyConfig);
+        return (args, env, pemCertificates, failedToApplyConfig);
     }
 
     private static List<ContainerPortSpec> BuildContainerPorts(RenderedModelResource cr)
