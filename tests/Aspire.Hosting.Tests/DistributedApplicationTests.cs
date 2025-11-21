@@ -1712,7 +1712,7 @@ public class DistributedApplicationTests
         bool includeIntegrationServices = false,
         bool disableDashboard = true,
         bool randomizePorts = true,
-        bool? trustDeveloperCertificate = null) =>
+        bool? trustDeveloperCertificate = false) =>
         TestProgram.Create<DistributedApplicationTests>(
             testName,
             args,
