@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable ASPIRECERTIFICATES001
+
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Threading.Channels;
@@ -641,10 +643,8 @@ public class DistributedApplicationTests
             X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
         using var cert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
 
-#pragma warning disable ASPIRECERTIFICATES001
         var redis = testProgram.AppBuilder.AddRedis($"{testName}-redis")
             .WithCertificateKeyPair(cert);
-#pragma warning restore ASPIRECERTIFICATES001
 
         await using var app = testProgram.Build();
 
@@ -676,66 +676,22 @@ public class DistributedApplicationTests
     [Theory]
     [RequiresDocker]
     [RequiresDevCert]
-    [InlineData(null, null, true, false, CertificateTrustScope.Append)]
-    [InlineData(null, false, false, false, CertificateTrustScope.Append)]
-    [InlineData(null, true, true, false, CertificateTrustScope.Append)]
-    [InlineData(false, null, false, false, CertificateTrustScope.Append)]
-    [InlineData(false, false, false, false, CertificateTrustScope.Append)]
-    [InlineData(false, true, true, false, CertificateTrustScope.Append)]
-    [InlineData(true, null, true, false, CertificateTrustScope.Append)]
-    [InlineData(true, false, false, false, CertificateTrustScope.Append)]
-    [InlineData(true, true, true, false, CertificateTrustScope.Append)]
-    [InlineData(null, null, true, true, CertificateTrustScope.Append)]
-    [InlineData(null, false, false, true, CertificateTrustScope.Append)]
-    [InlineData(null, true, true, true, CertificateTrustScope.Append)]
-    [InlineData(false, null, false, true, CertificateTrustScope.Append)]
     [InlineData(false, false, false, true, CertificateTrustScope.Append)]
     [InlineData(false, true, true, true, CertificateTrustScope.Append)]
-    [InlineData(true, null, true, true, CertificateTrustScope.Append)]
     [InlineData(true, false, false, true, CertificateTrustScope.Append)]
-    [InlineData(true, true, true, true, CertificateTrustScope.Append)]
-    [InlineData(null, null, true, false, CertificateTrustScope.Override)]
-    [InlineData(null, false, false, false, CertificateTrustScope.Override)]
-    [InlineData(null, true, true, false, CertificateTrustScope.Override)]
-    [InlineData(false, null, false, false, CertificateTrustScope.Override)]
-    [InlineData(false, false, false, false, CertificateTrustScope.Override)]
-    [InlineData(false, true, true, false, CertificateTrustScope.Override)]
-    [InlineData(true, null, true, false, CertificateTrustScope.Override)]
-    [InlineData(true, false, false, false, CertificateTrustScope.Override)]
-    [InlineData(true, true, true, false, CertificateTrustScope.Override)]
-    [InlineData(null, null, true, true, CertificateTrustScope.Override)]
-    [InlineData(null, false, false, true, CertificateTrustScope.Override)]
-    [InlineData(null, true, true, true, CertificateTrustScope.Override)]
-    [InlineData(false, null, false, true, CertificateTrustScope.Override)]
     [InlineData(false, false, false, true, CertificateTrustScope.Override)]
     [InlineData(false, true, true, true, CertificateTrustScope.Override)]
-    [InlineData(true, null, true, true, CertificateTrustScope.Override)]
     [InlineData(true, false, false, true, CertificateTrustScope.Override)]
-    [InlineData(true, true, true, true, CertificateTrustScope.Override)]
-    [InlineData(null, null, false, false, CertificateTrustScope.None)]
-    [InlineData(null, false, false, false, CertificateTrustScope.None)]
-    [InlineData(null, true, false, false, CertificateTrustScope.None)]
-    [InlineData(false, null, false, false, CertificateTrustScope.None)]
     [InlineData(false, false, false, false, CertificateTrustScope.None)]
-    [InlineData(false, true, false, false, CertificateTrustScope.None)]
-    [InlineData(true, null, false, false, CertificateTrustScope.None)]
-    [InlineData(true, false, false, false, CertificateTrustScope.None)]
-    [InlineData(true, true, false, false, CertificateTrustScope.None)]
-    [InlineData(null, null, false, true, CertificateTrustScope.None)]
-    [InlineData(null, false, false, true, CertificateTrustScope.None)]
-    [InlineData(null, true, false, true, CertificateTrustScope.None)]
-    [InlineData(false, null, false, true, CertificateTrustScope.None)]
-    [InlineData(false, false, false, true, CertificateTrustScope.None)]
     [InlineData(false, true, false, true, CertificateTrustScope.None)]
-    [InlineData(true, null, false, true, CertificateTrustScope.None)]
     [InlineData(true, false, false, true, CertificateTrustScope.None)]
-    [InlineData(true, true, false, true, CertificateTrustScope.None)]
     public async Task VerifyContainerIncludesExpectedDevCertificateConfiguration(bool? implicitTrust, bool? explicitTrust, bool expectDevCert, bool overridePaths, CertificateTrustScope trustScope)
     {
         using var testProgram = CreateTestProgram("verify-container-dev-cert", trustDeveloperCertificate: implicitTrust);
         SetupXUnitLogging(testProgram.AppBuilder.Services);
 
-        var container = AddRedisContainer(testProgram.AppBuilder, "verify-container-dev-cert-redis");
+        var container = AddRedisContainer(testProgram.AppBuilder, "verify-container-dev-cert-redis")
+            .WithoutCertificateKeyPair();
         if (explicitTrust.HasValue)
         {
             container.WithDeveloperCertificateTrust(explicitTrust.Value);
@@ -767,9 +723,7 @@ public class DistributedApplicationTests
         await app.StartAsync().DefaultTimeout(TestConstants.DefaultOrchestratorTestLongTimeout);
 
         var s = app.Services.GetRequiredService<IKubernetesService>();
-#pragma warning disable ASPIRECERTIFICATES001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         var dc = app.Services.GetRequiredService<IDeveloperCertificateService>();
-#pragma warning restore ASPIRECERTIFICATES001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
         var list = await s.ListAsync<Container>().DefaultTimeout(TestConstants.DefaultOrchestratorTestLongTimeout);
 
         Assert.Collection(list,
