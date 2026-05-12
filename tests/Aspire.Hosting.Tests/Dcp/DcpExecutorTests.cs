@@ -6,6 +6,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO.Pipelines;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
@@ -1890,6 +1891,100 @@ public class DcpExecutorTests
     }
 
     [Fact]
+    public async Task PersistentPlainExecutable_ExtensionMode_RunsInProcess()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        var executable = new TestExecutableResource("test-working-directory");
+        builder.AddResource(executable)
+            .WithDebugSupport(mode => new ExecutableLaunchConfiguration("test") { Mode = mode }, "test")
+            .WithLifetime(ExecutableLifetime.Persistent);
+
+        var configDict = new Dictionary<string, string?>
+        {
+            ["AppHost:Sha256"] = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+            [DcpExecutor.DebugSessionPortVar] = "12345",
+            [KnownConfigNames.DebugSessionInfo] = JsonSerializer.Serialize(new RunSessionInfo { ProtocolsSupported = ["test"], SupportedLaunchConfigurations = ["test"] }),
+            [KnownConfigNames.ExtensionEndpoint] = "http://localhost:1234",
+            [KnownConfigNames.DebugSessionRunMode] = "Debug"
+        };
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(configDict).Build();
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, configuration: configuration);
+
+        await appExecutor.RunApplicationAsync();
+
+        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "TestExecutable");
+        Assert.Equal("TestExecutable-12345678", exe.Metadata.Name);
+        Assert.True(exe.Spec.Persistent.GetValueOrDefault());
+        Assert.Equal(ExecutionType.Process, exe.Spec.ExecutionType);
+        Assert.Null(exe.Spec.FallbackExecutionTypes);
+    }
+
+    [Fact]
+    public async Task PersistentPlainExecutable_UsesStableCertificateOutputPath()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        using var certificate = CreateTestCertificate();
+        var certificateAuthorities = builder.AddCertificateAuthorityCollection("certificates")
+            .WithCertificate(certificate);
+
+        var executable = new TestExecutableResource("test-working-directory");
+        builder.AddResource(executable)
+            .WithCertificateAuthorityCollection(certificateAuthorities)
+            .WithCertificateTrustScope(CertificateTrustScope.Override)
+            .WithLifetime(ExecutableLifetime.Persistent);
+
+        var configDict = new Dictionary<string, string?>
+        {
+            ["AppHost:Sha256"] = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+        };
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(configDict).Build();
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService, configuration: configuration);
+
+        await appExecutor.RunApplicationAsync();
+
+        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "TestExecutable");
+        var sslCertDir = Assert.Single(exe.Spec.Env!, e => e.Name == "SSL_CERT_DIR").Value;
+        var sslCertFile = Assert.Single(exe.Spec.Env!, e => e.Name == "SSL_CERT_FILE").Value;
+        var expectedCertificatesRoot = Path.Join(".aspire", "dcp", "executables", "TestExecutable-12345678", "certificates");
+
+        Assert.EndsWith(Path.Join(expectedCertificatesRoot, "certs"), sslCertDir);
+        Assert.EndsWith(Path.Join(expectedCertificatesRoot, "cert.pem"), sslCertFile);
+        Assert.DoesNotContain("aspire-dcp", sslCertDir);
+        Assert.DoesNotContain("aspire-dcp", sslCertFile);
+    }
+
+    [Fact]
+    public async Task ExplicitStartPlainExecutable_IsCreatedWithStartFalse()
+    {
+        var builder = DistributedApplication.CreateBuilder();
+
+        builder.AddExecutable("CoolProgram", "cool", Environment.CurrentDirectory, "--alpha", "--bravo")
+            .WithExplicitStart();
+
+        var kubernetesService = new TestKubernetesService();
+        using var app = builder.Build();
+        var distributedAppModel = app.Services.GetRequiredService<DistributedApplicationModel>();
+        var appExecutor = CreateAppExecutor(distributedAppModel, kubernetesService: kubernetesService);
+
+        await appExecutor.RunApplicationAsync();
+
+        var exe = Assert.Single(kubernetesService.CreatedResources.OfType<Executable>(), e => e.AppModelResourceName == "CoolProgram");
+        Assert.False(exe.Spec.Start.GetValueOrDefault(true));
+    }
+
+    [Fact]
     public async Task PlainExecutable_ExtensionMode_UnsupportedDebugMode_RunsInProcess()
     {
         // Arrange
@@ -3516,7 +3611,10 @@ public class DcpExecutorTests
             });
         var ks = kubernetesService ?? new TestKubernetesService();
         var dcpEvts = events ?? new DcpExecutorEvents();
-        var locations = new Locations(new FileSystemService(configuration));
+        var fileSystemService = new FileSystemService(configuration);
+        var locations = new Locations(fileSystemService);
+        var aspireStoreDirectory = fileSystemService.TempDirectory.CreateTempSubdirectory("aspire-store");
+        var aspireStore = new AspireStore(Path.Join(aspireStoreDirectory.Path, ".aspire"), fileSystemService);
         var hostEnv = hostEnvironment ?? new TestHostEnvironment();
         var dcpDependencyCheckService = new TestDcpDependencyCheckService();
 
@@ -3529,6 +3627,7 @@ public class DcpExecutorTests
             new DistributedApplicationOptions(),
             executionContext,
             locations,
+            aspireStore,
             NullLogger<ExecutableCreator>.Instance,
             appResources);
 
@@ -3616,6 +3715,27 @@ public class DcpExecutorTests
     {
         var property = GetProperty(snapshot, name);
         return Assert.IsAssignableFrom<IEnumerable<T>>(property.Value);
+    }
+
+    private static X509Certificate2 CreateTestCertificate()
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            new X500DistinguishedName("CN=test"),
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+
+        var serialNumber = new byte[16];
+        RandomNumberGenerator.Fill(serialNumber);
+        var generator = X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1);
+
+        return request.Create(
+            request.SubjectName,
+            generator,
+            DateTimeOffset.Now,
+            DateTimeOffset.Now.AddYears(1),
+            serialNumber);
     }
 
     private sealed class TestExecutableResource(string directory) : ExecutableResource("TestExecutable", "test", directory);

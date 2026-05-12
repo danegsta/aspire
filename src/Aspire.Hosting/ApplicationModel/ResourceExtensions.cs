@@ -1058,6 +1058,25 @@ public static class ResourceExtensions
     }
 
     /// <summary>
+    /// Gets the lifetime type of the executable for the specified resource.
+    /// Defaults to <see cref="ExecutableLifetime.Session"/> if no <see cref="ExecutableLifetimeAnnotation"/> is found.
+    /// </summary>
+    /// <param name="resource">The resource to get the ExecutableLifetimeType for.</param>
+    /// <returns>
+    /// The <see cref="ExecutableLifetime"/> from the <see cref="ExecutableLifetimeAnnotation"/> for the resource (if the annotation exists).
+    /// Defaults to <see cref="ExecutableLifetime.Session"/> if the annotation is not set.
+    /// </returns>
+    internal static ExecutableLifetime GetExecutableLifetimeType(this IResource resource)
+    {
+        if (resource.TryGetLastAnnotation<ExecutableLifetimeAnnotation>(out var lifetimeAnnotation))
+        {
+            return lifetimeAnnotation.Lifetime;
+        }
+
+        return ExecutableLifetime.Session;
+    }
+
+    /// <summary>
     /// Determines whether the specified resource has a pull policy annotation and retrieves the value if it does.
     /// </summary>
     /// <param name="resource">The resource to check for a ContainerPullPolicy annotation</param>

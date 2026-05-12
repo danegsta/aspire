@@ -58,8 +58,21 @@ internal sealed class ExecutableSpec
     public List<HealthProbe>? HealthProbes { get; set; }
 
     /// <summary>
-    /// Setting Stop property to true will stop the Executable if it is running.
-    /// Once the Executable is stopped, it cannot be started again.
+    /// Should this Executable be created and persisted between DCP runs?
+    /// Persistent executables are only compatible with the Process execution type.
+    /// </summary>
+    [JsonPropertyName("persistent")]
+    public bool? Persistent { get; set; }
+
+    /// <summary>
+    /// Should this resource be started? If set to false, we will not attempt
+    /// to start the resource until Start is set to true (or null).
+    /// </summary>
+    [JsonPropertyName("start")]
+    public bool? Start { get; set; }
+
+    /// <summary>
+    /// Should this resource be stopped?
     /// </summary>
     [JsonPropertyName("stop")]
     public bool? Stop { get; set; }

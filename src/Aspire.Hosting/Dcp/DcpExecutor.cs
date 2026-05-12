@@ -1163,6 +1163,9 @@ internal sealed partial class DcpExecutor : IDcpExecutor, IDcpObjectFactory, IAs
                 case RenderedModelResource<Executable> er:
                     await EnsureResourceDeletedAsync<Executable>(resourceReference.DcpResourceName, cancellationToken).ConfigureAwait(false);
 
+                    // Ensure we explicitly start the executable even if original executable was created in "delay-start" mode.
+                    er.DcpResource.Spec.Start = true;
+
                     await _executorEvents.PublishAsync(new OnConnectionStringAvailableContext(cancellationToken, resourceReference.ModelResource)).ConfigureAwait(false);
                     await _executorEvents.PublishAsync(new OnResourceStartingContext(cancellationToken, resourceType, resourceReference.ModelResource, resourceReference.DcpResourceName)).ConfigureAwait(false);
                     await _executableCreator.CreateObjectAsync(er, EmptyCreationContext.s_instance, resourceLogger, this, cancellationToken).ConfigureAwait(false);

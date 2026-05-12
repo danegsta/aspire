@@ -80,7 +80,12 @@ internal sealed class DcpNameGenerator
 
     public (string Name, string Suffix) GetExecutableName(IResource project)
     {
-        var nameSuffix = GetRandomNameSuffix();
+        var nameSuffix = project.GetExecutableLifetimeType() switch
+        {
+            ExecutableLifetime.Session => GetRandomNameSuffix(),
+            _ => GetProjectHashSuffix(),
+        };
+
         return (GetObjectNameForResource(project, _options.Value, nameSuffix), nameSuffix);
     }
 

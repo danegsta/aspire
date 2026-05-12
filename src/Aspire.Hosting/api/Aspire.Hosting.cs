@@ -510,6 +510,10 @@ namespace Aspire.Hosting
         public static ApplicationModel.IResourceBuilder<T> WithCommand<T>(this ApplicationModel.IResourceBuilder<T> builder, string command)
             where T : ApplicationModel.ExecutableResource { throw null; }
 
+        [AspireExport("withExecutableLifetime", Description = "Sets the lifetime behavior of the executable resource")]
+        public static ApplicationModel.IResourceBuilder<T> WithLifetime<T>(this ApplicationModel.IResourceBuilder<T> builder, ApplicationModel.ExecutableLifetime lifetime)
+            where T : ApplicationModel.ExecutableResource { throw null; }
+
         [AspireExport("withWorkingDirectory", Description = "Sets the executable working directory")]
         public static ApplicationModel.IResourceBuilder<T> WithWorkingDirectory<T>(this ApplicationModel.IResourceBuilder<T> builder, string workingDirectory)
             where T : ApplicationModel.ExecutableResource { throw null; }
@@ -2408,6 +2412,18 @@ namespace Aspire.Hosting.ApplicationModel
         public required string Command { get { throw null; } set { } }
 
         public required string WorkingDirectory { get { throw null; } set { } }
+    }
+
+    public enum ExecutableLifetime
+    {
+        Session = 0,
+        Persistent = 1
+    }
+
+    [System.Diagnostics.DebuggerDisplay("Type = {GetType().Name,nq}")]
+    public sealed partial class ExecutableLifetimeAnnotation : IResourceAnnotation
+    {
+        public required ExecutableLifetime Lifetime { get { throw null; } set { } }
     }
 
     [System.Diagnostics.DebuggerDisplay("Type = {GetType().Name,nq}, Name = {Name}, Command = {Command}")]

@@ -69,6 +69,34 @@ public static class ExecutableResourceBuilderExtensions
     }
 
     /// <summary>
+    /// Sets the lifetime behavior of the executable resource.
+    /// </summary>
+    /// <typeparam name="T">The resource type.</typeparam>
+    /// <param name="builder">Builder for the executable resource.</param>
+    /// <param name="lifetime">The lifetime behavior of the executable resource. The default behavior is <see cref="ExecutableLifetime.Session"/>.</param>
+    /// <returns>The <see cref="IResourceBuilder{T}"/>.</returns>
+    /// <remarks>
+    /// <example>
+    /// Marking an executable resource to have a <see cref="ExecutableLifetime.Persistent"/> lifetime.
+    /// <code language="csharp">
+    /// var builder = DistributedApplication.CreateBuilder(args);
+    ///
+    /// builder.AddExecutable("myexecutable", "mycommand", ".")
+    ///        .WithLifetime(ExecutableLifetime.Persistent);
+    ///
+    /// builder.Build().Run();
+    /// </code>
+    /// </example>
+    /// </remarks>
+    [AspireExport("withExecutableLifetime", Description = "Sets the lifetime behavior of the executable resource")]
+    public static IResourceBuilder<T> WithLifetime<T>(this IResourceBuilder<T> builder, ExecutableLifetime lifetime) where T : ExecutableResource
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        return builder.WithAnnotation(new ExecutableLifetimeAnnotation { Lifetime = lifetime }, ResourceAnnotationMutationBehavior.Replace);
+    }
+
+    /// <summary>
     /// Adds annotation to <see cref="ExecutableResource" /> to support containerization during deployment.
     /// </summary>
     /// <typeparam name="T">Type of executable resource</typeparam>

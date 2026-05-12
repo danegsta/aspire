@@ -29,6 +29,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
     private readonly DistributedApplicationOptions _distributedApplicationOptions;
     private readonly DistributedApplicationExecutionContext _executionContext;
     private readonly Locations _locations;
+    private readonly IAspireStore _aspireStore;
     private readonly ILogger<ExecutableCreator> _logger;
     private readonly DcpAppResourceStore _appResources;
 
@@ -39,6 +40,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         DistributedApplicationOptions distributedApplicationOptions,
         DistributedApplicationExecutionContext executionContext,
         Locations locations,
+        IAspireStore aspireStore,
         ILogger<ExecutableCreator> logger,
         DcpAppResourceStore appResources)
     {
@@ -48,6 +50,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         _distributedApplicationOptions = distributedApplicationOptions;
         _executionContext = executionContext;
         _locations = locations;
+        _aspireStore = aspireStore;
         _logger = logger;
         _appResources = appResources;
     }
@@ -61,8 +64,8 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
 
     public bool IsReadyToCreate(RenderedModelResource<Executable> resource, EmptyCreationContext context)
     {
-        var explicitStartup = resource.ModelResource.TryGetAnnotationsOfType<ExplicitStartupAnnotation>(out _);
-        return !explicitStartup;
+        // Executables are always created. When explicit startup is used, DCP receives Spec.Start = false.
+        return true;
     }
 
     public async Task CreateObjectAsync(RenderedModelResource<Executable> er, EmptyCreationContext context, ILogger resourceLogger, IDcpObjectFactory factory, CancellationToken cancellationToken)
@@ -247,6 +250,11 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
 
                 exe.SetAnnotationAsObjectList(CustomResource.ResourceProjectArgsAnnotation, projectArgs);
 
+                if (project.TryGetLastAnnotation<ExplicitStartupAnnotation>(out _))
+                {
+                    exe.Spec.Start = false;
+                }
+
                 var exeAppResource = new RenderedModelResource<Executable>(project, exe);
                 DcpModelUtilities.AddServicesProducedInfo(exeAppResource, _appResources.Get());
                 _appResources.Add(exeAppResource);
@@ -272,7 +280,13 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             exe.Annotate(CustomResource.OtelServiceInstanceIdAnnotation, exeInstance.Suffix);
             exe.Annotate(CustomResource.ResourceNameAnnotation, executable.Name);
 
-            if (executable.SupportsDebugging(_configuration, out _))
+            var persistent = executable.GetExecutableLifetimeType() == ExecutableLifetime.Persistent;
+            if (persistent)
+            {
+                exe.Spec.Persistent = true;
+            }
+
+            if (!persistent && executable.SupportsDebugging(_configuration, out _))
             {
                 // Just mark as IDE execution here - the actual launch configuration callback
                 // will be invoked in CreateExecutableAsync after endpoints are allocated.
@@ -282,6 +296,11 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
             else
             {
                 exe.Spec.ExecutionType = ExecutionType.Process;
+            }
+
+            if (executable.TryGetLastAnnotation<ExplicitStartupAnnotation>(out _))
+            {
+                exe.Spec.Start = false;
             }
 
             DcpExecutor.SetInitialResourceState(executable, exe);
@@ -296,8 +315,7 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
     {
         var exe = (Executable)er.DcpResource;
 
-        // Build the base paths for certificate output in the DCP session directory.
-        var certificatesRootDir = Path.Join(_locations.DcpSessionDir, exe.Metadata.Name);
+        var certificatesRootDir = GetCertificatesRootDirectory(er, exe);
         var bundleOutputPath = Path.Join(certificatesRootDir, "cert.pem");
         var customBundleOutputPath = Path.Join(certificatesRootDir, "bundles");
         var certificatesOutputPath = Path.Join(certificatesRootDir, "certs");
@@ -403,6 +421,16 @@ internal sealed class ExecutableCreator : IObjectCreator<Executable, EmptyCreati
         }
 
         return (configuration, pemCertificates);
+    }
+
+    private string GetCertificatesRootDirectory(RenderedModelResource<Executable> er, Executable exe)
+    {
+        if (er.ModelResource.GetExecutableLifetimeType() == ExecutableLifetime.Persistent)
+        {
+            return Path.Join(_aspireStore.BasePath, "dcp", "executables", exe.Metadata.Name, "certificates");
+        }
+
+        return Path.Join(_locations.DcpSessionDir, exe.Metadata.Name);
     }
 
     private static List<LaunchArgument> BuildLaunchArgs(RenderedModelResource<Executable> er, ExecutableSpec spec, IEnumerable<(string Value, bool IsSensitive)> appHostArgs, int executableArgumentStartIndex)
